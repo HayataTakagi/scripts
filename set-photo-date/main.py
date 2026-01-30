@@ -5,6 +5,7 @@
 ファイル名フォーマット:
   250820092810281.jpeg → 2025/08/20 09:28:10.281
   250819111142709_20250820135851386.jpeg → 最初の13桁のみ使用
+  20251104_100346.jpg → 2025/11/04 10:03:46.000
 
 使用方法:
   python set_photo_date.py <ファイルまたはディレクトリ>
@@ -31,7 +32,7 @@ def check_exiftool():
         return False
 
 
-def parse_datetime_from_filename(filename: str) -> str | None:
+def parse_datetime_from_filename(filename: str) -> tuple[str, str] | None:
     """
     ファイル名から日時を抽出
 
@@ -39,52 +40,84 @@ def parse_datetime_from_filename(filename: str) -> str | None:
         filename: ファイル名（拡張子含む）
 
     Returns:
-        EXIF形式の日時文字列 "YYYY:MM:DD HH:MM:SS.mmm" または None
+        (EXIF形式の日時文字列 "YYYY:MM:DD HH:MM:SS", ミリ秒) のタプル または None
     """
     # 拡張子を除いたベース名を取得
     base_name = Path(filename).stem
 
-    # 最初の13桁の数字を抽出
+    # パターン1: 13桁形式 (YYMMDDHHMMSSm)
     match = re.match(r'^(\d{13})', base_name)
-    if not match:
-        return None
+    if match:
+        digits = match.group(1)
 
-    digits = match.group(1)
+        # パース: YYMMDDHHMMSSMMM
+        try:
+            yy = int(digits[0:2])
+            month = int(digits[2:4])
+            day = int(digits[4:6])
+            hour = int(digits[6:8])
+            minute = int(digits[8:10])
+            second = int(digits[10:12])
 
-    # パース: YYMMDDHHMMSSMMM
-    try:
-        yy = int(digits[0:2])
-        month = int(digits[2:4])
-        day = int(digits[4:6])
-        hour = int(digits[6:8])
-        minute = int(digits[8:10])
-        second = int(digits[10:12])
-        millisecond = digits[12:13]  # 1桁目のみ（3桁中）
+            # 年を4桁に変換（2000年代と仮定）
+            year = 2000 + yy
 
-        # 年を4桁に変換（2000年代と仮定）
-        year = 2000 + yy
+            # 値の妥当性チェック
+            if not (1 <= month <= 12):
+                return None
+            if not (1 <= day <= 31):
+                return None
+            if not (0 <= hour <= 23):
+                return None
+            if not (0 <= minute <= 59):
+                return None
+            if not (0 <= second <= 59):
+                return None
 
-        # 値の妥当性チェック
-        if not (1 <= month <= 12):
-            return None
-        if not (1 <= day <= 31):
-            return None
-        if not (0 <= hour <= 23):
-            return None
-        if not (0 <= minute <= 59):
-            return None
-        if not (0 <= second <= 59):
-            return None
+            # EXIF形式: "YYYY:MM:DD HH:MM:SS"
+            # SubSecTimeOriginal用のミリ秒も返す
+            datetime_str = f"{year:04d}:{month:02d}:{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+            subsec = digits[12:15]  # ミリ秒3桁
 
-        # EXIF形式: "YYYY:MM:DD HH:MM:SS"
-        # SubSecTimeOriginal用のミリ秒も返す
-        datetime_str = f"{year:04d}:{month:02d}:{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
-        subsec = digits[12:15]  # ミリ秒3桁
+            return datetime_str, subsec
 
-        return datetime_str, subsec
+        except (ValueError, IndexError):
+            pass
 
-    except (ValueError, IndexError):
-        return None
+    # パターン2: YYYYMMDD_HHMMSS 形式
+    match = re.match(r'^(\d{8})_(\d{6})', base_name)
+    if match:
+        date_part = match.group(1)  # YYYYMMDD
+        time_part = match.group(2)  # HHMMSS
+
+        try:
+            year = int(date_part[0:4])
+            month = int(date_part[4:6])
+            day = int(date_part[6:8])
+            hour = int(time_part[0:2])
+            minute = int(time_part[2:4])
+            second = int(time_part[4:6])
+
+            # 値の妥当性チェック
+            if not (1 <= month <= 12):
+                return None
+            if not (1 <= day <= 31):
+                return None
+            if not (0 <= hour <= 23):
+                return None
+            if not (0 <= minute <= 59):
+                return None
+            if not (0 <= second <= 59):
+                return None
+
+            # EXIF形式: "YYYY:MM:DD HH:MM:SS"
+            datetime_str = f"{year:04d}:{month:02d}:{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+            return datetime_str, "000"
+
+        except (ValueError, IndexError):
+            pass
+
+    return None
 
 
 def set_photo_date(filepath: Path, datetime_str: str, subsec: str) -> bool:
